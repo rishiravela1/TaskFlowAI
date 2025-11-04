@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI-Powered Kanban Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .task-list { min-height: 150px; }
+        .task.dragging { opacity: 0.5; transform: rotate(3deg); }
+        .column.drag-over { background-color: #1e293b; border: 2px dashed #3b82f6; }
+        #confetti-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1000; }
+        .suggestion-box { max-height: 0; overflow: hidden; transition: max-height 0.5s ease-in-out, padding 0.5s ease-in-out; }
+        .suggestion-box.show { max-height: 500px; padding-top: 0.75rem; padding-bottom: 0.75rem; }
+        .loader { border: 4px solid #374151; border-top: 4px solid #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .subtask-list { list-style: none; padding-left: 0; }
+        .subtask-item label.completed { text-decoration: line-through; color: #6b7280; }
+    </style>
+</head>
+<body class="bg-gray-900 text-slate-200">
+
+    <canvas id="confetti-canvas"></canvas>
+    
+    <!-- Initials in corner -->
+    <div class="fixed bottom-4 right-4 text-xs font-mono text-gray-600">RR</div>
+
+    <div class="min-h-screen">
+        <header class="bg-gray-800/70 backdrop-blur-sm shadow-sm border-b border-gray-700">
+            <div class="container mx-auto px-4 md:px-8 py-4 text-center">
+                <h1 class="text-3xl font-bold text-blue-500">TaskFlow AI</h1>
+                <p class="text-slate-400 mt-1">Your Professional AI-Powered Task Manager</p>
+            </div>
+        </header>
+
+        <div class="container mx-auto p-4 md:p-8">
+            <div class="max-w-xl mx-auto">
+                <div class="bg-gray-800 p-6 rounded-xl shadow-md border border-gray-700 mb-6">
+                    <form id="add-task-form" class="flex flex-col sm:flex-row gap-4">
+                        <input type="text" id="new-task-input" placeholder="Enter a new, high-level task..." class="flex-grow p-3 bg-gray-700 border border-gray-600 text-slate-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition" required>
+                        <button type="submit" class="bg-blue-600 text-white font-semibold py-3 px-6 rounded-lg hover:bg-blue-700 transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">Add Task</button>
+                    </form>
+                </div>
+
+                <div class="bg-blue-900/50 border border-blue-700 text-blue-200 p-4 rounded-lg mb-10 text-sm flex items-start gap-3">
+                    <div>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                    </div>
+                    <p><strong>Pro Tip:</strong> Click the 
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline-block -mt-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                        </svg> 
+                        icon on any task to let AI generate sub-task suggestions for you!
+                    </p>
+                </div>
+            </div>
+
+            <main id="kanban-board" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div id="todo" class="column bg-gray-800 rounded-xl shadow-md p-4" data-column-id="todo">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="flex items-center text-xl font-semibold text-slate-200"><span class="h-3 w-3 rounded-full bg-red-500 mr-3"></span>To Do</h2>
+                        <span class="bg-gray-700 text-slate-300 text-sm font-bold px-3 py-1 rounded-full" data-task-count>0</span>
+                    </div>
+                    <div class="task-list space-y-4 p-2 bg-black/20 rounded-lg" data-column-list></div>
+                </div>
+                <div id="inprogress" class="column bg-gray-800 rounded-xl shadow-md p-4" data-column-id="inprogress">
+                    <div class="flex items-center justify-between mb-4">
+                         <h2 class="flex items-center text-xl font-semibold text-slate-200"><span class="h-3 w-3 rounded-full bg-yellow-500 mr-3"></span>In Progress</h2>
+                        <span class="bg-gray-700 text-slate-300 text-sm font-bold px-3 py-1 rounded-full" data-task-count>0</span>
+                    </div>
+                    <div class="task-list space-y-4 p-2 bg-black/20 rounded-lg" data-column-list></div>
+                </div>
+                <div id="done" class="column bg-gray-800 rounded-xl shadow-md p-4" data-column-id="done">
+                    <div class="flex items-center justify-between mb-4">
+                         <h2 class="flex items-center text-xl font-semibold text-slate-200"><span class="h-3 w-3 rounded-full bg-green-500 mr-3"></span>Done</h2>
+                        <span class="bg-gray-700 text-slate-300 text-sm font-bold px-3 py-1 rounded-full" data-task-count>0</span>
+                    </div>
+                    <div class="task-list space-y-4 p-2 bg-black/20 rounded-lg" data-column-list></div>
+                </div>
+            </main>
+        </div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const API_BASE_URL = 'http://127.0.0.1:5001';
+            const addTaskForm = document.getElementById('add-task-form');
+            const newTaskInput = document.getElementById('new-task-input');
+            const columns = document.querySelectorAll('.column');
+            const myConfetti = confetti.create(document.getElementById('confetti-canvas'), { resize: true, useWorker: true });
+            let tasks = {};
+
+            // --- API Functions ---
+            const fetchTasks = async () => {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/tasks`);
+                    if (!response.ok) throw new Error('Network response was not ok');
+                    tasks = await response.json();
+                    renderTasks();
+                } catch (error) {
+                    console.error("Error fetching tasks:", error);
+                    alert("Could not connect to the backend server. Please ensure it's running.");
+                }
+            };
+
+            const apiAddTask = async (text) => {
+                try {
+                    await fetch(`${API_BASE_URL}/tasks`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text }),
+                    });
+                    fetchTasks();
+                } catch (error) { console.error("Error adding task:", error); }
+            };
+
+            const apiUpdateTasks = async (updatedTasks) => {
+                try {
+                    await fetch(`${API_BASE_URL}/tasks/update`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(updatedTasks),
+                    });
+                } catch (error) { console.error("Error updating tasks:", error); }
+            };
+
+            const apiDeleteTask = async (taskId) => {
+                try {
+                    await fetch(`${API_BASE_URL}/tasks/${taskId}`, { method: 'DELETE' });
+                    fetchTasks();
+                } catch (error) { console.error("Error deleting task:", error); }
+            };
+
+            const apiSuggestSubtasks = async (taskText) => {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/suggest-subtasks`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ task_text: taskText }),
+                    });
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.error || 'Failed to get suggestions');
+                    return result;
+                } catch (error) {
+                    console.error("Error fetching suggestions:", error);
+                    return { error: error.message };
+                }
+            };
+            
+            // --- Sub-task API Functions ---
+            const apiAddSubtask = async (parentTaskId, text) => {
+                try {
+                    await fetch(`${API_BASE_URL}/tasks/${parentTaskId}/subtask`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text }),
+                    });
+                    fetchTasks();
+                } catch (error) { console.error("Error adding subtask:", error); }
+            };
+
+            const apiUpdateSubtask = async (parentTaskId, subtaskId, completed) => {
+                 try {
+                    await fetch(`${API_BASE_URL}/tasks/${parentTaskId}/subtask/${subtaskId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ completed }),
+                    });
+                    fetchTasks();
+                } catch (error) { console.error("Error updating subtask:", error); }
+            };
+
+            // --- UI Functions ---
+            const createTaskElement = (task) => {
+                const taskCard = document.createElement('div');
+                taskCard.className = 'p-4 bg-gray-700 rounded-lg shadow-sm border border-gray-600';
+
+                const taskEl = document.createElement('div');
+                taskEl.className = 'task flex justify-between items-start';
+                taskEl.setAttribute('draggable', 'true');
+                taskEl.dataset.taskId = task.id;
+
+                const taskText = document.createElement('p');
+                taskText.textContent = task.text;
+                taskText.className = 'text-slate-100 flex-grow mr-2';
+                
+                const controls = document.createElement('div');
+                controls.className = 'flex items-center space-x-2 flex-shrink-0';
+
+                const suggestBtn = document.createElement('button');
+                suggestBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>`;
+                suggestBtn.title = 'Get AI Sub-task Suggestions';
+                suggestBtn.className = 'text-slate-400 hover:text-blue-500 transition-colors';
+                suggestBtn.onclick = (e) => toggleSubtaskSuggestions(e, task.id, task.text);
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.innerHTML = `&times;`;
+                deleteBtn.title = 'Delete Task';
+                deleteBtn.className = 'text-slate-400 hover:text-red-500 font-bold text-xl transition-colors';
+                deleteBtn.onclick = () => apiDeleteTask(task.id);
+                
+                controls.appendChild(suggestBtn);
+                controls.appendChild(deleteBtn);
+                taskEl.appendChild(taskText);
+                taskEl.appendChild(controls);
+                
+                taskCard.appendChild(taskEl);
+
+                if (task.subtasks && task.subtasks.length > 0) {
+                    const subtaskList = document.createElement('ul');
+                    subtaskList.className = 'subtask-list mt-3 pt-3 border-t border-gray-600 space-y-2';
+                    task.subtasks.forEach(subtask => {
+                        const item = document.createElement('li');
+                        item.className = 'subtask-item flex items-center text-sm';
+                        
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.checked = subtask.completed;
+                        checkbox.id = subtask.id;
+                        checkbox.className = 'mr-2 h-4 w-4 rounded border-gray-500 bg-gray-600 text-blue-600 focus:ring-blue-500';
+                        checkbox.onchange = () => apiUpdateSubtask(task.id, subtask.id, checkbox.checked);
+
+                        const label = document.createElement('label');
+                        label.htmlFor = subtask.id;
+                        label.textContent = subtask.text;
+                        if (subtask.completed) {
+                            label.className = 'completed text-slate-500';
+                        }
+
+                        item.appendChild(checkbox);
+                        item.appendChild(label);
+                        subtaskList.appendChild(item);
+                    });
+                    taskCard.appendChild(subtaskList);
+                }
+
+                const suggestionBox = document.createElement('div');
+                suggestionBox.id = `suggestions-${task.id}`;
+                suggestionBox.className = 'suggestion-box mt-2 border-t border-gray-600';
+                taskCard.appendChild(suggestionBox);
+
+                taskEl.addEventListener('dragstart', handleDragStart);
+                taskEl.addEventListener('dragend', handleDragEnd);
+
+                return taskCard;
+            };
+
+            const renderTasks = () => {
+                document.querySelectorAll('[data-column-list]').forEach(list => list.innerHTML = '');
+                if (!tasks || typeof tasks !== 'object') return;
+                Object.keys(tasks).forEach(columnId => {
+                    const columnEl = document.querySelector(`[data-column-id="${columnId}"] [data-column-list]`);
+                    if(columnEl && tasks[columnId]){
+                        tasks[columnId].forEach(task => {
+                            columnEl.appendChild(createTaskElement(task));
+                        });
+                    }
+                });
+                updateTaskCounts();
+            };
+
+            const updateTaskCounts = () => {
+                columns.forEach(column => {
+                    const columnId = column.dataset.columnId;
+                    const countEl = column.querySelector('[data-task-count]');
+                    if(countEl) countEl.textContent = tasks[columnId]?.length || 0;
+                });
+            };
+            
+            const launchConfetti = () => confetti({ particleCount: 150, spread: 90, origin: { y: 0.6 } });
+
+            const toggleSubtaskSuggestions = async (event, taskId, taskText) => {
+                event.stopPropagation();
+                const suggestionBox = document.getElementById(`suggestions-${taskId}`);
+                if (suggestionBox.classList.contains('show')) {
+                    suggestionBox.classList.remove('show');
+                    suggestionBox.innerHTML = '';
+                    return;
+                }
+
+                suggestionBox.innerHTML = '<div class="flex justify-center items-center p-4"><div class="loader"></div></div>';
+                suggestionBox.classList.add('show');
+                
+                const result = await apiSuggestSubtasks(taskText);
+                
+                suggestionBox.innerHTML = '';
+                if (result && result.subtasks && result.subtasks.length > 0) {
+                    const list = document.createElement('ul');
+                    list.className = 'space-y-2';
+                    result.subtasks.forEach(subtaskText => {
+                        const item = document.createElement('li');
+                        item.className = 'text-sm text-slate-300 bg-gray-600 p-2 rounded-md flex justify-between items-center';
+                        item.textContent = subtaskText;
+
+                        const addButton = document.createElement('button');
+                        addButton.textContent = '+ Add';
+                        addButton.className = 'text-xs bg-blue-500 text-white font-semibold py-1 px-2 rounded-full hover:bg-blue-600';
+                        addButton.onclick = () => {
+                            apiAddSubtask(taskId, subtaskText);
+                            suggestionBox.classList.remove('show');
+                            suggestionBox.innerHTML = '';
+                        };
+                        item.appendChild(addButton);
+                        list.appendChild(item);
+                    });
+                    suggestionBox.appendChild(list);
+                } else {
+                    const errorMessage = result?.error || 'No suggestions found or an unknown error occurred.';
+                    suggestionBox.innerHTML = `<p class="text-sm text-red-400 p-2 font-semibold">${errorMessage}</p>`;
+                }
+            };
+            
+            // --- Drag and Drop Handlers ---
+            let draggedTaskId = null;
+            let sourceColumnId = null;
+
+            const handleDragStart = (e) => {
+                draggedTaskId = e.target.closest('.task').dataset.taskId;
+                sourceColumnId = e.target.closest('.column').dataset.columnId;
+                setTimeout(() => {
+                    const draggedElement = document.querySelector(`[data-task-id="${draggedTaskId}"]`).closest('.p-4');
+                    if (draggedElement) draggedElement.classList.add('dragging');
+                }, 0);
+            };
+
+            const handleDragEnd = (e) => {
+                const draggedElement = document.querySelector('.dragging');
+                if(draggedElement) draggedElement.classList.remove('dragging');
+                draggedTaskId = null;
+                sourceColumnId = null;
+            };
+
+            const handleDragOver = (e) => {
+                e.preventDefault(); 
+                const column = e.currentTarget;
+                if (!column.classList.contains('drag-over')) {
+                    column.classList.add('drag-over');
+                }
+            };
+            
+            const handleDragLeave = (e) => {
+                e.currentTarget.classList.remove('drag-over');
+            };
+
+            const handleDrop = (e) => {
+                e.preventDefault();
+                const destinationColumn = e.currentTarget;
+                destinationColumn.classList.remove('drag-over');
+                const destinationColumnId = destinationColumn.dataset.columnId;
+
+                if (!draggedTaskId || sourceColumnId === destinationColumnId) return;
+
+                const taskToMove = tasks[sourceColumnId].find(t => t.id === draggedTaskId);
+                tasks[sourceColumnId] = tasks[sourceColumnId].filter(t => t.id !== draggedTaskId);
+                tasks[destinationColumnId].push(taskToMove);
+
+                if (destinationColumnId === 'done') {
+                    launchConfetti();
+                }
+
+                renderTasks(); 
+                apiUpdateTasks(tasks); 
+            };
+
+            // --- Event Listeners ---
+            addTaskForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const taskText = newTaskInput.value.trim();
+                if (taskText) {
+                    apiAddTask(taskText);
+                    newTaskInput.value = '';
+                    newTaskInput.focus();
+                }
+            });
+
+            columns.forEach(column => {
+                column.addEventListener('dragover', handleDragOver);
+                column.addEventListener('dragleave', handleDragLeave);
+                column.addEventListener('drop', handleDrop);
+            });
+
+            // --- Initial Load ---
+            fetchTasks();
+        });
+    </script>
+</body>
+</html>
+
+
